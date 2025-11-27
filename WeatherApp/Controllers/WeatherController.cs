@@ -1,14 +1,25 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using WeatherApp.Models;
+using WeatherApp.Services;
 
 namespace WeatherApp.Controllers;
+
 [ApiController]
 [Route("[controller]")]
-
-public class WeatherController
+public class WeatherController : ControllerBase
 {
-    [HttpGet]
-    public string GetWeather()
+    private readonly WeatherService _weatherService;
+    
+    public WeatherController(WeatherService weatherService)
     {
-        return "It's sunny today";
+        _weatherService = weatherService;
+    }
+
+    [HttpGet("{cityName}")]
+    public async Task<IActionResult> Get(string cityName)
+    {
+        WeatherModel data = await _weatherService.GetWeatherForCity(cityName);
+        
+        return Ok(data);
     }
 }
