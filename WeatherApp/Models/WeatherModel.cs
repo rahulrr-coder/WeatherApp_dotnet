@@ -6,4 +6,5 @@ public class WeatherModel
     public int Temperature  { get; set; }
     public string Weather { get; set; }
     public int Precipitation { get; set; }
+    public int Aqi { get; set; }
 }

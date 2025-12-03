@@ -41,6 +41,9 @@ public class WeatherService : IWeatherService
         // Step E: Read the messy JSON into our "Net" (OpenWeatherData)
         var externalData = await response.Content.ReadFromJsonAsync<OpenWeatherData>();
 
+        var lat = externalData.coord.lat;
+        var lan = externalData.coord.lon;
+
         // Step F: TRANSLATION. Take messy data -> put into clean Model.
         return new WeatherModel
         {
@@ -59,6 +62,7 @@ public class WeatherService : IWeatherService
         public string name { get; set; }
         public MainData main { get; set; }
         public WeatherDescription[] weather { get; set; }
+        public Coord coord { get; set; }
     }
 
     public class MainData
@@ -76,4 +80,24 @@ public class WeatherService : IWeatherService
     {
         throw new NotImplementedException();
     }
+}
+
+public class Coord
+{
+    public double lat { get; set; }
+    public double lon { get; set; }
+}
+
+public class OpenAqiData
+{
+    public AqiItem[] list { get; set; }
+}
+
+public class AqiItem
+{
+    public AqiMain main { get; set; }
+}
+public class AqiMain
+{
+    public string main { get; set; }
 }

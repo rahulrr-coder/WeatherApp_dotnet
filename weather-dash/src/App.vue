@@ -7,6 +7,7 @@ interface WeatherData {
   temperature: number;
   weather: string;
   precipitation: number;
+  aqi:number;
 }
 
 // 2. Reactive Variables
@@ -62,6 +63,13 @@ const fetchWeather = async () => {
       <p>Temperature: <strong>{{ weather.temperature }}°C</strong></p>
       <p>Condition: <strong>{{ weather.weather }}</strong></p>
       <p>Humidity: <strong>{{ weather.precipitation }}%</strong></p>
+      <p>
+        Air Quality: 
+        <strong> {{weather.aqi}}</strong>
+        <span v-if="weather.aqi <=2"> (Good)</span>
+        <span v-else-if="weather.aqi <=3"> (Moderate) </span>
+        <span v-else> (Poor)</span>
+      </p>
     </div>
   </div>
 </template>
