@@ -1,76 +1,111 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
-// 1. Define the Interface (Matches your C# WeatherModel)
+// Interfaces
 interface WeatherData {
   city: string;
   temperature: number;
   weather: string;
   precipitation: number;
-  aqi:number;
 }
 
-// 2. Reactive Variables
+interface FavoriteCity {
+  id: number;
+  name: string;
+}
+
+// State
 const weather = ref<WeatherData | null>(null)
+const favorites = ref<FavoriteCity[]>([])
 const cityInput = ref('')
 const loading = ref(false)
 const error = ref('')
 
-// 3. Fetch Logic
-const fetchWeather = async () => {
-  if (!cityInput.value) return;
+// Load favorites on startup
+onMounted(() => refreshFavorites())
 
-  loading.value = true
-  error.value = ''
-  weather.value = null
+const fetchWeather = async (city: string) => {
+  if (!city) return;
+  loading.value = true;
+  error.value = '';
+  weather.value = null;
 
   try {
-    // ⚠️ CRITICAL: Check if 5160 matches your dotnet run output!
-    const response = await fetch(`http://localhost:5160/Weather/${cityInput.value}`)
-
+    const response = await fetch(`http://localhost:5160/Weather/${city}`)
     if (!response.ok) throw new Error("City not found")
-
-    const data: WeatherData = await response.json()
-    weather.value = data
+    weather.value = await response.json()
   } catch (err) {
     error.value = (err as Error).message
   } finally {
     loading.value = false
   }
 }
+
+const refreshFavorites = async () => {
+  try {
+    const res = await fetch('http://localhost:5160/Favorites')
+    if (res.ok) favorites.value = await res.json()
+  } catch (e) { console.error("DB Error", e) }
+}
+
+const saveCity = async () => {
+  if (!weather.value) return;
+  
+  await fetch('http://localhost:5160/Favorites', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: weather.value.city })
+  })
+  await refreshFavorites()
+}
+
+const deleteCity = async (id: number) => {
+  await fetch(`http://localhost:5160/Favorites/${id}`, { method: 'DELETE' })
+  await refreshFavorites()
+}
 </script>
 
 <template>
-  <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-    <h1>🌩️ Weather & Vue Connection</h1>
-
-    <div style="margin-bottom: 20px;">
-      <input
-          v-model="cityInput"
-          @keyup.enter="fetchWeather"
-          placeholder="Enter City (e.g. London)"
-          style="padding: 10px; font-size: 16px;"
-      />
-      <button @click="fetchWeather" style="padding: 10px 15px; margin-left: 10px; cursor: pointer;">
-        {{ loading ? 'Searching...' : 'Search' }}
-      </button>
+  <div class="container">
+    <h1>☁️ Weather App</h1>
+    
+    <div class="search-box">
+      <input v-model="cityInput" @keyup.enter="fetchWeather(cityInput)" placeholder="Enter City" />
+      <button @click="fetchWeather(cityInput)" :disabled="loading">Search</button>
     </div>
 
-    <p v-if="error" style="color: red; font-weight: bold;">{{ error }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
 
-    <div v-if="weather" style="border: 1px solid #ddd; display: inline-block; padding: 20px; border-radius: 8px; background: #808080;">
+    <div v-if="weather" class="card">
       <h2>{{ weather.city }}</h2>
-      <p>Temperature: <strong>{{ weather.temperature }}°C</strong></p>
-      <p>Condition: <strong>{{ weather.weather }}</strong></p>
-      <p>Humidity: <strong>{{ weather.precipitation }}%</strong></p>
-      <p>
-        Air Quality: 
-        <strong> {{weather.aqi}}</strong>
-        <span v-if="weather.aqi <=2"> (Good)</span>
-        <span v-else-if="weather.aqi <=3"> (Moderate) </span>
-        <span v-else> (Poor)</span>
-      </p>
+      <div class="temp">{{ weather.temperature }}°C</div>
+      <p>{{ weather.weather }}</p>
+      <button class="save-btn" @click="saveCity">❤️ Save to Favorites</button>
+    </div>
+
+    <div v-if="favorites.length > 0" class="favorites">
+      <h3>Your Saved Cities</h3>
+      <ul>
+        <li v-for="fav in favorites" :key="fav.id">
+          <span @click="fetchWeather(fav.name)" class="fav-name">{{ fav.name }}</span>
+          <button @click="deleteCity(fav.id)" class="delete-btn">×</button>
+        </li>
+      </ul>
     </div>
   </div>
 </template>
 
+<style scoped>
+.container { max-width: 400px; margin: 0 auto; text-align: center; font-family: sans-serif; }
+.search-box { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
+input { padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+button { padding: 8px 15px; cursor: pointer; }
+.card { background: #f0f0f0; padding: 20px; border-radius: 10px; margin: 20px 0; }
+.temp { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
+.save-btn { background-color: #4CAF50; color: white; border: none; border-radius: 5px; margin-top: 10px; cursor: pointer; }
+.favorites ul { list-style: none; padding: 0; }
+.favorites li { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; }
+.fav-name { cursor: pointer; color: #007bff; text-decoration: underline; }
+.delete-btn { background: #ff4444; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; }
+.error { color: red; }
+</style>
