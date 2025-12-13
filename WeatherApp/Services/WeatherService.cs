@@ -76,10 +76,6 @@ public class WeatherService : IWeatherService
         public string main { get; set; }
     }
 
-    public IEnumerable<WeatherModel> GetForecast()
-    {
-        throw new NotImplementedException();
-    }
 }
 
 public class Coord

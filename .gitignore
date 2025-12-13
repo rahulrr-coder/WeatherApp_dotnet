@@ -482,3 +482,21 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# --- Ignore Test Reports & Coverage ---
+# The raw data (XML/JSON)
+**/TestResults/
+TestResults/
+
+# The HTML Report (The website you generated)
+coverage-report/
+**/coverage-report/
+
+# Visual Studio Code Coverage Highlight files
+*.coverage
+*.coveragexml
+
+# --- Frontend Coverage (Vue) ---
+weather-dash/coverage/
+coverage/
+*.lcov

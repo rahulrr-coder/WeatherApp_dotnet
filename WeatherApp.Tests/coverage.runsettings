@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>json,lcov,cobertura</Format>
+          <Exclude>[WeatherApp]WeatherApp.Migrations.*,[WeatherApp]Program,[WeatherApp]Microsoft.AspNetCore.OpenApi.*,[WeatherApp]System.Runtime.CompilerServices.*</Exclude>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

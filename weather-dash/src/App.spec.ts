@@ -37,7 +37,7 @@ describe('Weather Dashboard', () => {
   // TEST 1: Sanity Check
   it('renders correctly', () => {
     const wrapper = mount(App)
-    expect(wrapper.text()).toContain('Weather & Vue Connection')
+    expect(wrapper.text()).toContain('Weather App')
   })
 
   // TEST 2: Search Functionality
@@ -86,5 +86,64 @@ describe('Weather Dashboard', () => {
     const saveBtn = wrapper.find('.save-btn')
     expect(saveBtn.exists()).toBe(true)
     expect(saveBtn.text()).toContain('Save to Favorites')
+  })
+
+  // TEST 4: Error Handling (The "Sad Path")
+  it('displays error message when city is not found', async () => {
+    const wrapper = mount(App)
+    
+    // Mock a broken API response (404)
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({})
+    })
+
+    // Search for a fake city
+    await wrapper.find('input').setValue('InvalidCity')
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    // Assert: The error message from App.vue ("City not found") is displayed
+    expect(wrapper.text()).toContain('City not found')
+  })
+
+  // TEST 5: Verify Favorites Load on Startup
+  it('loads favorites on startup', async () => {
+    // Setup: Mock the initial GET request
+    fetchMock.mockResolvedValueOnce(createFetchResponse([
+      { id: 1, name: 'Mumbai' }
+    ]))
+
+    const wrapper = mount(App)
+    await flushPromises() // Wait for onMounted
+
+    // Assert: Mumbai should be visible in the list
+    expect(wrapper.text()).toContain('Mumbai')
+  })
+
+  // TEST 6: Delete Functionality
+  it('removes a city when delete button is clicked', async () => {
+    // Setup: Start with one favorite
+    fetchMock.mockResolvedValueOnce(createFetchResponse([
+      { id: 99, name: 'Berlin' }
+    ]))
+    
+    const wrapper = mount(App)
+    await flushPromises()
+
+    // Setup: Mock the DELETE request
+    fetchMock.mockResolvedValueOnce(createFetchResponse({})) // DELETE success
+    // Setup: Mock the Refresh request that happens after delete
+    fetchMock.mockResolvedValueOnce(createFetchResponse([])) // Empty list back
+
+    // Find and click the 'x' button
+    const deleteBtn = wrapper.find('.delete-btn')
+    await deleteBtn.trigger('click')
+    await flushPromises()
+
+    // Assert: API was called with DELETE
+    const calls = fetchMock.mock.calls
+    const deleteCall = calls.find((c: any[]) => c[0].includes('/Favorites/99') && c[1].method === 'DELETE')
+    expect(deleteCall).toBeDefined()
   })
 })
