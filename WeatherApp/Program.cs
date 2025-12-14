@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore; 
 using WeatherApp.Services;
+using WeatherApp.Services.Background;
 using WeatherApp.Data;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using System.Text;
+using Quartz;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -18,6 +20,26 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddDbContext<WeatherDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddTransient<IEmailService, EmailService>();
+builder.Services.AddQuartz(q=>
+{
+   var jobKey = new JobKey("DailyWeatherJob");
+
+    // Register the Job
+    q.AddJob<DailyWeatherJob>(opts => opts.WithIdentity(jobKey));
+
+    // Create the Trigger (The "Alarm Clock")
+    q.AddTrigger(opts => opts
+        .ForJob(jobKey)
+        .WithIdentity("DailyWeatherJob-trigger")
+        .StartNow() // ⚡ Run immediately when app starts!
+        .WithSimpleSchedule(x => x
+            .WithIntervalInMinutes(1) // Run every 1 minute
+            .RepeatForever())
+    );
+});
+
+builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 // Cors service
 builder.Services.AddCors(options =>
 {
