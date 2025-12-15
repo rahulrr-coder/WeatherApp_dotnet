@@ -3,61 +3,76 @@ using WeatherApp.Models;
 
 namespace WeatherApp.Services;
 
+// Note: No "public interface" here anymore!
 public class WeatherService : IWeatherService
 {
     private readonly HttpClient _httpClient;
-    private readonly IConfiguration _configuration;
+    private readonly string _apiKey;
 
     public WeatherService(HttpClient httpClient, IConfiguration configuration)
     {
         _httpClient = httpClient;
-        _configuration = configuration;
+        _apiKey = configuration["OpenWeather:ApiKey"] ?? throw new Exception("API Key Missing");
     }
 
-    // RENAMED from GetWeatherForCity to GetWeatherAsync to match Interface
-    public async Task<WeatherModel?> GetWeatherAsync(string cityName)
+    public async Task<WeatherModel?> GetWeatherAsync(string city)
     {
-        var apiKey = _configuration["OpenWeather:ApiKey"];
-        var url = $"https://api.openweathermap.org/data/2.5/weather?q={cityName}&units=metric&appid={apiKey}";
-
-        var response = await _httpClient.GetAsync(url);
-
-        if (!response.IsSuccessStatusCode)
+        // 1. Get Basic Weather
+        var weatherUrl = $"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={_apiKey}&units=metric";
+        
+        OpenWeatherResponse? weatherResponse = null;
+        try 
         {
-            return null; // Return null so the Job knows it failed
+            weatherResponse = await _httpClient.GetFromJsonAsync<OpenWeatherResponse>(weatherUrl);
+        }
+        catch 
+        {
+            return null; 
         }
 
-        var externalData = await response.Content.ReadFromJsonAsync<OpenWeatherData>();
+        if (weatherResponse == null) return null;
 
-        // TRANSLATION: External Data -> Your Clean WeatherModel
+        // 2. Get AQI
+        var lat = weatherResponse.coord.lat;
+        var lon = weatherResponse.coord.lon;
+        var aqiUrl = $"https://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={_apiKey}";
+        
+        int aqiLevel = 1; 
+        try 
+        {
+            var aqiResponse = await _httpClient.GetFromJsonAsync<AirPollutionResponse>(aqiUrl);
+            aqiLevel = aqiResponse?.list?.FirstOrDefault()?.main?.aqi ?? 1;
+        }
+        catch 
+        {
+            // Ignore AQI errors
+        }
+
         return new WeatherModel
         {
-            City = externalData.name,
-            // Note: Your model uses 'int', so we cast the double to int
-            Temperature = (int)externalData.main.temp, 
-            Weather = externalData.weather[0].main,
-            Precipitation = externalData.main.humidity,
-            Aqi = 0 // Placeholder until you implement AQI API
+            City = weatherResponse.name,
+            Weather = weatherResponse.weather.FirstOrDefault()?.main ?? "Unknown",
+            Temperature = (int)weatherResponse.main.temp,
+            AQI = aqiLevel
         };
     }
-
-    // --- Helper Classes for OpenWeatherMap JSON ---
-    public class OpenWeatherData
-    {
-        public string name { get; set; }
-        public MainData main { get; set; }
-        public WeatherDescription[] weather { get; set; }
-    }
-
-    public class MainData
-    {
-        public double temp { get; set; }
-        public int humidity { get; set; }
-    }
-
-    public class WeatherDescription
-    {
-        public string main { get; set; }
-        public string description { get; set; }
-    }
 }
+
+// --- Helper Classes (Keep these at the bottom) ---
+public class OpenWeatherResponse 
+{
+    public string name { get; set; } = "";
+    public MainData main { get; set; } = new();
+    public List<WeatherInfo> weather { get; set; } = new();
+    public Coord coord { get; set; } = new();
+}
+public class MainData { public double temp { get; set; } }
+public class WeatherInfo { public string main { get; set; } = ""; }
+public class Coord { public double lat { get; set; } public double lon { get; set; } }
+
+public class AirPollutionResponse
+{
+    public List<PollutionData> list { get; set; } = new();
+}
+public class PollutionData { public MainAqi main { get; set; } = new(); }
+public class MainAqi { public int aqi { get; set; } }

@@ -5,27 +5,42 @@ using WeatherApp.Services;
 namespace WeatherApp.Controllers;
 
 [ApiController]
-[Route("[controller]")]
+[Route("api/[controller]")]
 public class WeatherController : ControllerBase
 {
     private readonly IWeatherService _weatherService;
-    
-    public WeatherController(IWeatherService weatherService)
+    private readonly IAIService _aiService; // 👈 Added AI Service
+
+    // Inject BOTH services here
+    public WeatherController(IWeatherService weatherService, IAIService aiService)
     {
         _weatherService = weatherService;
+        _aiService = aiService;
     }
 
-    [HttpGet("{cityName}")]
-    public async Task<IActionResult> Get(string cityName)
+    [HttpGet("{city}")]
+    public async Task<IActionResult> GetWeather(string city)
     {
-        var data = await  _weatherService.GetWeatherAsync(cityName);
-
-        if (data.Weather == "City Not Found")
-        {
-            return BadRequest(data);
-        }
-        
-        return Ok(data);
+        var weather = await _weatherService.GetWeatherAsync(city);
+        if (weather == null) return NotFound("City not found");
+        return Ok(weather);
     }
-}
 
+   // In WeatherController.cs
+
+[HttpGet("advice")] // Renamed from 'test-ai' for clarity
+public async Task<IActionResult> GetWeatherAdvice(string city)
+{
+    var weather = await _weatherService.GetWeatherAsync(city);
+    if (weather == null) return NotFound("City not found");
+
+    var advice = await _aiService.GetFashionAdviceAsync(
+        weather.City, 
+        weather.Weather, 
+        weather.Temperature, 
+        weather.AQI
+    );
+
+    return Ok(new { advice });
+}
+}
