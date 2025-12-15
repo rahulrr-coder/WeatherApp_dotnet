@@ -26,32 +26,21 @@ public class WeatherController : ControllerBase
         return Ok(weather);
     }
 
-    // 👇 NEW TEST ENDPOINT
-    [HttpGet("test-ai")]
-    public async Task<IActionResult> TestAI(string city = "Coimbatore")
-    {
-        // 1. Get Real Weather Data
-        var weather = await _weatherService.GetWeatherAsync(city);
-        
-        if (weather == null) 
-            return NotFound($"Could not fetch weather for {city}");
+   // In WeatherController.cs
 
-        // 2. Ask Gemini for Advice
-        // We pass the real AQI and Temp we just got
-        var advice = await _aiService.GetFashionAdviceAsync(
-            weather.City, 
-            weather.Weather, 
-            weather.Temperature, 
-            weather.AQI
-        );
+[HttpGet("advice")] // Renamed from 'test-ai' for clarity
+public async Task<IActionResult> GetWeatherAdvice(string city)
+{
+    var weather = await _weatherService.GetWeatherAsync(city);
+    if (weather == null) return NotFound("City not found");
 
-        // 3. Show the result
-        return Ok(new 
-        { 
-            City = weather.City,
-            Temperature = weather.Temperature + "°C",
-            AQI = weather.AQI,
-            AI_Says = advice 
-        });
-    }
+    var advice = await _aiService.GetFashionAdviceAsync(
+        weather.City, 
+        weather.Weather, 
+        weather.Temperature, 
+        weather.AQI
+    );
+
+    return Ok(new { advice });
+}
 }
