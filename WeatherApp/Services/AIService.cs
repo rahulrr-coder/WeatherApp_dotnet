@@ -1,13 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using WeatherApp.Models; // Needed for WeatherModel
+using WeatherApp.Models;
 
 namespace WeatherApp.Services;
 
 public interface IAIService
 {
-    // Updated signature to accept the full WeatherModel for the "Story" logic
     Task<string> GetFashionAdviceAsync(WeatherModel weather);
 }
 
@@ -24,91 +23,89 @@ public class AIService : IAIService
 
     public async Task<string> GetFashionAdviceAsync(WeatherModel weather)
     {
+        // DEBUG LOG 1: Check if key is loaded
         var apiKey = _configuration["Gemini:ApiKey"];
-        if (string.IsNullOrEmpty(apiKey)) return "{}"; // Return empty JSON if key missing
+        if (string.IsNullOrEmpty(apiKey)) 
+        {
+            Console.WriteLine("🔴 AI Error: API Key is NULL or Empty!");
+            return "{}";
+        }
+        else
+        {
+            // Print first 5 chars to verify it's the right key (safe to log locally)
+            Console.WriteLine($"🟢 AI Key Loaded: {apiKey.Substring(0, 5)}...");
+        }
 
-        // 1. Build a textual summary of the forecast parts (Morning/Afternoon/Evening)
-        // This lets the AI "see the future" to write the story
         var forecastSummary = string.Join(", ", weather.DayParts.Select(p => $"{p.PartName}: {p.Temp:F0}°C {p.Condition}"));
 
-        // 2. The New "Storyteller" Prompt
-        var prompt = $@"
-            Context: Current weather in {weather.City} is {weather.CurrentTemp:F0}°C ({weather.CurrentCondition}). 
-            Forecast segments: {forecastSummary}.
+       
+       var prompt = $@"
+            Context: {weather.City} is {weather.CurrentTemp:F0}°C ({weather.CurrentCondition}). 
             Humidity: {weather.Humidity}%. Wind: {weather.WindSpeed} m/s. AQI: {weather.AQI}.
-
-            Task: Act as a witty weather lifestyle assistant. Return a VALID JSON object.
-            Do NOT use Markdown formatting (no ```json blocks). Just return the raw JSON string.
             
-            JSON Structure & Keys:
-            1. 'headline': A catchy, 5-7 word hook summarizing the day (e.g., 'Sunny start with a breezy picnic evening!').
-            2. 'story': A 2-sentence narrative telling the user how the day evolves based on the forecast segments.
-            3. 'outfit': Casual, friendly clothing advice.
-            4. 'vibe': A fun 'Lifestyle Index' (e.g., 'Laundry Day', 'Kite Flying', 'Netflix & Chill', 'Good Hair Day').
+            Task: Return valid JSON.
+            STYLE GUIDE:
+            - Tone: Elegant, helpful, concise. Like a personal assistant.
+            - Summary: Max 2 sentences. strictly descriptive but warm.
+            - NO 'Vibe' check. 
+            
+            JSON Keys:
+            1. 'summary': 2 sentences describing the weather feel.
+            2. 'outfit': Specific clothing advice (e.g., 'Linen shirt', 'Trench coat').
+            3. 'safety': One specific tip (e.g. 'Carry an umbrella', 'Wear a mask'), or 'No hazards'.
 
-            Example JSON:
-            {{
-                ""headline"": ""Perfect sunny morning, but grab an umbrella for 4 PM!"",
-                ""story"": ""Start your day light, but watch out for the evening breeze. Clouds roll in later, making it perfect for a cozy dinner."",
-                ""outfit"": ""T-shirt now, hoodie later."",
-                ""vibe"": ""Picnic Perfect""
+            Example: 
+            {{ 
+                ""summary"": ""A consistently cloudy day with a gentle breeze. Temperatures will remain mild, making it perfect for a walk."", 
+                ""outfit"": ""Light sweater and comfortable trousers."", 
+                ""safety"": ""No hazards."" 
             }}
         ";
 
         var requestBody = new
         {
-            contents = new[]
-            {
-                new { parts = new[] { new { text = prompt } } }
-            }
+            contents = new[] { new { parts = new[] { new { text = prompt } } } }
         };
 
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
         
-        // Using gemini-1.5-flash for speed and reliability
-        var url = $"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){apiKey}";
+        // gemini-2.5-flash
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={apiKey}";
+
+
         
+
         try 
         {
             var response = await _httpClient.PostAsync(url, content);
-            response.EnsureSuccessStatusCode();
             
+            // DEBUG LOG 2: Check HTTP Status
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"🔴 Google API Error: {response.StatusCode}");
+                Console.WriteLine($"🔴 Details: {errorBody}");
+                return "{}";
+            }
+
             var responseString = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<GeminiResponse>(responseString);
             
-            // Return the text directly. The Frontend will parse the JSON.
-            return result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "{}";
+            var text = result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "{}";
+            Console.WriteLine("🟢 AI Success! Response received.");
+            return text;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"AI Error: {ex.Message}");
-            return "{}"; // Return empty JSON on failure
+            Console.WriteLine($"🔴 EXCEPTION in AIService: {ex.Message}");
+            return "{}";
         }
     }
 }
 
-// --- Helper Classes to map Gemini's API Response ---
-public class GeminiResponse
-{
-    [JsonPropertyName("candidates")]
-    public List<Candidate>? Candidates { get; set; }
-}
-
-public class Candidate
-{
-    [JsonPropertyName("content")]
-    public Content? Content { get; set; }
-}
-
-public class Content
-{
-    [JsonPropertyName("parts")]
-    public List<Part>? Parts { get; set; }
-}
-
-public class Part
-{
-    [JsonPropertyName("text")]
-    public string? Text { get; set; }
-}
+// Keep your Helper Classes (GeminiResponse, Candidate, etc.) below...
+public class GeminiResponse { [JsonPropertyName("candidates")] public List<Candidate>? Candidates { get; set; } }
+public class Candidate { [JsonPropertyName("content")] public Content? Content { get; set; } }
+public class Content { [JsonPropertyName("parts")] public List<Part>? Parts { get; set; } }
+public class Part { [JsonPropertyName("text")] public string? Text { get; set; } }
