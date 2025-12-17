@@ -7,7 +7,7 @@ import axios from 'axios'
 interface DayPart { partName: string; temp: number; condition: string; }
 interface WeatherData { 
   city: string; 
-  country?: string; // Added Country
+  country?: string; 
   currentTemp: number; 
   currentCondition: string; 
   humidity: number; 
@@ -84,12 +84,11 @@ const fetchWeather = async (city: string) => {
   showSuggestions.value = false;
   weather.value = null;
   aiData.value = null;
-  cityInput.value = ''; // Clear input
+  cityInput.value = ''; 
 
   try {
     const res = await axios.get<WeatherData>(`http://localhost:5160/api/Weather/${city}`);
     weather.value = res.data;
-    // Ensure Country is set (Backend mapping)
     if(!weather.value.country) weather.value.country = ""; 
 
     aiLoading.value = true;
@@ -97,7 +96,13 @@ const fetchWeather = async (city: string) => {
         const aiRes = await axios.get(`http://localhost:5160/api/Weather/advice?city=${city}`);
         const raw = aiRes.data.advice.replace(/```json|```/g, '').trim();
         aiData.value = JSON.parse(raw);
-    } catch { aiData.value = { summary: `Enjoy ${city}.`, outfit: "-", safety: "-" }; }
+    } catch { 
+      aiData.value = { 
+        summary: `Enjoy the atmosphere in ${city}.`, 
+        outfit: "-", 
+        safety: "-" 
+      }; 
+    }
     aiLoading.value = false;
 
   } catch { 
@@ -120,7 +125,7 @@ const toggleEmailSub = async (city: string, currentState: boolean) => {
            homeCity.value = '';
            localStorage.setItem('homeCity', '');
         } else {
-           loadFavorites(); return; // Revert checkbox
+           loadFavorites(); return; 
         }
       }
       loadFavorites();
@@ -140,6 +145,13 @@ const toggleFav = async () => {
       favorites.value.push(city);
     }
   } catch {}
+}
+
+const setAsHome = async () => {
+  if (!weather.value) return;
+  if(confirm(`Make ${weather.value.city} your Sanctuary (Home City)?`)) {
+    toggleEmailSub(weather.value.city, true);
+  }
 }
 
 const removeDirectly = async (city: string) => {
@@ -173,7 +185,7 @@ onMounted(() => loadFavorites())
         />
         <ul v-if="showSuggestions && searchResults.length > 0" class="nav-suggestions">
            <li v-for="res in searchResults" :key="res.name" @click="fetchWeather(res.name)">
-             {{ res.name }}, <span class="sub">{{ res.country }}</span>
+             {{ res.name }} <span class="sub">{{ res.country }}</span>
            </li>
         </ul>
       </div>
@@ -262,11 +274,22 @@ onMounted(() => loadFavorites())
               <div class="weather-header">
                 <div class="title-group">
                   <h1 class="city-name">{{ weather.city }}</h1>
-                  <p class="country-name">{{ weather.country }}</p> </div>
+                  <p class="country-name">{{ weather.country }}</p>
+                </div>
                 
                 <div class="actions">
-                  <button @click="toggleFav" class="icon-btn">
-                    {{ isFav() ? '♥ Saved' : '♡ Save' }}
+                  <button @click="toggleFav" class="icon-btn" :class="{ loved: isFav() }" title="Save to Collection">
+                    {{ isFav() ? '♥' : '♡' }}
+                  </button>
+                  
+                  <button 
+                    @click="setAsHome" 
+                    class="home-pill" 
+                    :class="{active: isHome}"
+                    :disabled="isHome"
+                    :title="isHome ? 'This is your Home City' : 'Set as Home City'"
+                  >
+                    {{ isHome ? 'Home' : 'Set Home' }}
                   </button>
                 </div>
               </div>
@@ -327,7 +350,7 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 .logo { font-size: 1.5rem; font-weight: 700; cursor: pointer; letter-spacing: -0.5px; }
 .logo .dot { color: #d4a373; }
 
-/* NAV SEARCH (Centered in Nav) */
+/* NAV SEARCH (Centered) */
 .nav-search-container { position: absolute; left: 50%; transform: translateX(-50%); width: 400px; }
 .nav-search-container input { width: 100%; padding: 10px 20px; border: 1px solid #eee; border-radius: 20px; outline: none; background: #f9f9f9; font-family: 'Lato'; transition: all 0.2s; }
 .nav-search-container input:focus { background: white; border-color: #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
@@ -359,7 +382,7 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 .cloud-search input { flex: 1; border: none; font-size: 1.2rem; outline: none; font-family: 'Lato'; background: transparent; color: #333; }
 .arrow-btn { background: #1a1a1a; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
 .arrow-btn:hover { background: #333; }
-.suggestions-list { position: absolute; top: 110%; left: 20px; right: 20px; background: white; list-style: none; padding: 10px 0; margin-top: 5px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border-radius: 20px; z-index: 50; text-align: left; overflow: hidden; }
+.suggestions-list { position: absolute; top: 110%; left: 20px; right: 20px; background: white; list-style: none; padding: 10px 0; margin-top: 5px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border-radius: 20px; z-index: 50; text-align: left; }
 .suggestions-list li { padding: 15px 25px; cursor: pointer; transition: background 0.1s; }
 .suggestions-list li:hover { background: #f7f7f7; }
 .sub { color: #999; font-size: 0.85rem; margin-left: 5px; font-style: italic; }
@@ -388,13 +411,64 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 .floating-card { width: 100%; max-width: 1100px; background: white; border-radius: 50px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,0.08); min-height: 650px; display: flex; }
 .detail-grid { display: grid; grid-template-columns: 1.3fr 1fr; width: 100%; }
 
-.left-panel { padding: 60px; display: flex; flex-direction: column; justify-content: center; color: #1a1a1a; transition: background 0.5s; }
-.weather-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
-.city-name { font-size: 3.5rem; margin: 0; line-height: 1; }
-.country-name { font-size: 1.2rem; color: inherit; opacity: 0.6; margin-top: 5px; font-family: 'Playfair Display'; font-style: italic; }
-.actions { display: flex; gap: 15px; }
-.icon-btn { font-size: 1.2rem; background: none; border: none; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; }
-.icon-btn:hover { opacity: 1; }
+.left-panel { padding: 60px; display: flex; flex-direction: column; justify-content: center; color: #1a1a1a; transition: background 0.5s; position: relative; }
+
+/* Header Layout: Name wraps, Actions stay put */
+.weather-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: flex-start; /* Important: Align to top */
+  margin-bottom: 40px; 
+  gap: 20px; 
+}
+.title-group { 
+  flex: 1; 
+  min-width: 0; /* Allows text wrap */
+  padding-right: 10px; /* Space between name and buttons */
+}
+.city-name { 
+  font-size: 3.5rem; 
+  margin: 0; 
+  line-height: 1.1; 
+  word-wrap: break-word; /* Handle long names like Thiruvananthapuram */
+}
+.country-name { font-size: 1.2rem; color: inherit; opacity: 0.8; margin-top: 5px; font-family: 'Playfair Display'; font-style: italic; }
+
+.actions { 
+  display: flex; 
+  align-items: center; 
+  gap: 15px; 
+  flex-shrink: 0; /* Prevents button squish */
+}
+
+/* Icon Button (Heart) */
+.icon-btn { 
+  font-size: 1.5rem; background: none; border: none; cursor: pointer; 
+  opacity: 0.4; transition: all 0.2s; 
+}
+.icon-btn:hover { opacity: 0.8; transform: scale(1.1); }
+.icon-btn.loved { opacity: 1; color: #e11d48; }
+
+/* Set Home Pill (Redesigned) */
+.home-pill { 
+  padding: 8px 16px; 
+  border: 1px solid #e5e5e5; 
+  border-radius: 20px; 
+  background: white; 
+  font-size: 0.75rem; 
+  font-weight: 700; 
+  text-transform: uppercase; 
+  cursor: pointer; 
+  transition: all 0.2s; 
+  white-space: nowrap;
+}
+.home-pill:hover { border-color: #1a1a1a; }
+.home-pill.active { 
+  background: #f0fdf4; 
+  color: #15803d; 
+  border-color: #bbf7d0; 
+  cursor: default; 
+}
 
 .temp-block { font-size: 8rem; line-height: 1; margin: 20px 0; }
 .unit { font-size: 3rem; vertical-align: top; }
@@ -409,10 +483,10 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 .panel-inner { max-width: 450px; margin: 0 auto; }
 .brief-header { font-size: 0.8rem; letter-spacing: 2px; color: #d4a373; border-bottom: 2px solid #d4a373; display: inline-block; padding-bottom: 5px; margin-bottom: 40px; }
 .ai-summary { font-family: 'Playfair Display'; font-size: 1.5rem; line-height: 1.6; color: #333; margin-bottom: 50px; }
-.advisories { display: flex; flex-direction: column; gap: 25px; }
-.advice { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 20px; }
-.cat-label { font-size: 0.75rem; letter-spacing: 1px; color: #aaa; font-weight: 700; }
-.adv-val { font-size: 1rem; color: #1a1a1a; font-weight: 500; text-align: right; max-width: 70%; }
+.advisories { display: flex; flex-direction: column; gap: 30px; }
+.advice-block { display: flex; flex-direction: column; gap: 8px; border-left: 2px solid #f0f0f0; padding-left: 20px; }
+.cat-label { font-size: 0.7rem; letter-spacing: 1.5px; color: #aaa; text-transform: uppercase; font-weight: 700; }
+.adv-text { font-size: 1rem; color: #1a1a1a; font-weight: 500; line-height: 1.5; margin: 0; font-family: 'Lato', sans-serif; }
 
 /* TOGGLE SWITCH */
 .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
