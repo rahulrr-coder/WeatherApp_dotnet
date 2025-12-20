@@ -47,7 +47,11 @@ builder.Services.AddQuartz(q =>
     q.AddTrigger(opts => opts
         .ForJob(jobKey)
         .WithIdentity("DailyWeatherJob-trigger")
-        .WithCronSchedule("0 0 8 ? * *") // Runs at 8:00 AM daily
+        // Runs at 8:00 AM daily
+        .WithCronSchedule("0 0 8 ? * *") 
+        // Testing
+       //.WithCronSchedule("0/30 * * ? * *") 
+
     );
 });
 builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);

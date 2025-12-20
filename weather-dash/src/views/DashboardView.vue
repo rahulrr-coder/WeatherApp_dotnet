@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
-// Types
+// --- Types ---
 interface DayPart { partName: string; temp: number; condition: string; }
 interface WeatherData { 
   city: string; 
@@ -13,16 +13,25 @@ interface WeatherData {
   humidity: number; 
   windSpeed: number; 
   aqi: number; 
+  maxTemp: number;
+  minTemp: number;
+  // New Fields (Will act as placeholders until backend sends them)
+  uvIndex?: number;
+  visibility?: number; // in km
+  sunrise?: string; // "06:30 AM"
+  sunset?: string; // "06:15 PM"
+  dayLength?: string; // "11h 45m"
   dayParts: DayPart[]; 
 }
 interface AiAdvice { summary: string; outfit: string; safety: string; }
 interface CityResult { name: string; country: string; }
 
-// State
+// --- State ---
 const router = useRouter()
 const username = ref(localStorage.getItem('userName') || 'Guest')
 const userEmail = ref(localStorage.getItem('userEmail') || '') 
 const homeCity = ref(localStorage.getItem('homeCity') || '') 
+const emailActive = ref(localStorage.getItem('emailActive') === 'true') 
 const viewState = ref<'HOME' | 'CITY'>('HOME')
 
 const weather = ref<WeatherData | null>(null)
@@ -38,20 +47,21 @@ const loading = ref(false)
 const aiLoading = ref(false)
 const showProfile = ref(false)
 
-// Computed
+// --- COMPUTED ---
 const weatherClass = computed(() => {
   if (!weather.value) return 'bg-default';
   const cond = weather.value.currentCondition.toLowerCase();
   if (cond.includes('clear') || cond.includes('sun')) return 'bg-sunny';
   if (cond.includes('cloud')) return 'bg-cloudy';
   if (cond.includes('rain') || cond.includes('drizzle')) return 'bg-rainy';
+  if (cond.includes('mist') || cond.includes('haze')) return 'bg-misty';
   return 'bg-default';
 });
 
 const isHome = computed(() => weather.value?.city === homeCity.value);
 const otherFavorites = computed(() => favorites.value.filter(c => c !== homeCity.value));
 
-// Actions
+// --- ACTIONS ---
 const loadFavorites = async () => {
   try {
     const res = await axios.get(`http://localhost:5160/api/Favorites/${username.value}`)
@@ -64,10 +74,15 @@ const goHome = () => {
   weather.value = null;
   cityInput.value = '';
   searchResults.value = [];
+  showSuggestions.value = false;
 }
 
 const onSearchInput = () => {
-  if (cityInput.value.length < 3) { searchResults.value = []; return; }
+  if (cityInput.value.length < 3) { 
+    searchResults.value = []; 
+    showSuggestions.value = false;
+    return; 
+  }
   setTimeout(async () => {
     try {
       const res = await axios.get<CityResult[]>(`http://localhost:5160/api/Weather/search?query=${cityInput.value}`);
@@ -88,13 +103,30 @@ const fetchWeather = async (city: string) => {
 
   try {
     const res = await axios.get<WeatherData>(`http://localhost:5160/api/Weather/${city}`);
-    weather.value = res.data;
-    if(!weather.value.country) weather.value.country = ""; 
+    
+    // 🎨 MOCK DATA INJECTION (Until Backend Updates)
+    // This ensures the UI looks complete right now.
+    const enrichedWeather = {
+        ...res.data,
+        country: res.data.country || "",
+        uvIndex: res.data.uvIndex || Math.floor(Math.random() * 5) + 1, // Mock UV
+        visibility: res.data.visibility || 8.5, // Mock Visibility
+        sunrise: "06:12 AM",
+        sunset: "06:45 PM",
+        dayLength: "12h 33m"
+    };
+    
+    weather.value = enrichedWeather;
 
     aiLoading.value = true;
     try {
         const aiRes = await axios.get(`http://localhost:5160/api/Weather/advice?city=${city}`);
-        const raw = aiRes.data.advice.replace(/```json|```/g, '').trim();
+        let raw = aiRes.data.advice.replace(/```json|```/g, '').trim();
+        if (raw.startsWith('{') === false) {
+           const start = raw.indexOf('{');
+           const end = raw.lastIndexOf('}');
+           if (start >= 0 && end > start) raw = raw.substring(start, end - start + 1);
+        }
         aiData.value = JSON.parse(raw);
     } catch { 
       aiData.value = { 
@@ -112,24 +144,47 @@ const fetchWeather = async (city: string) => {
   finally { loading.value = false; }
 }
 
-const toggleEmailSub = async (city: string, currentState: boolean) => {
+const toggleEmailSub = async () => {
+  const newState = !emailActive.value;
+  emailActive.value = newState;
+  localStorage.setItem('emailActive', String(newState));
+
   try {
       await axios.put(`http://localhost:5160/api/auth/update-subscription`, {
-          username: username.value, isSubscribed: currentState, city: city
+          username: username.value, isSubscribed: newState, city: homeCity.value
       });
-      if (currentState) {
-        homeCity.value = city;
-        localStorage.setItem('homeCity', city);
-      } else {
-        if(confirm("Turn off daily emails?")) {
-           homeCity.value = '';
-           localStorage.setItem('homeCity', '');
-        } else {
-           loadFavorites(); return; 
-        }
-      }
+  } catch { 
+    alert("Failed to update settings.");
+    emailActive.value = !newState; 
+  }
+}
+
+const setAsHome = async () => {
+  if (!weather.value) return;
+  const city = weather.value.city;
+  homeCity.value = city;
+  localStorage.setItem('homeCity', city);
+
+  try {
+      await axios.put(`http://localhost:5160/api/auth/update-subscription`, {
+          username: username.value, isSubscribed: emailActive.value, city: city
+      });
       loadFavorites();
-  } catch { alert("Update failed"); }
+  } catch {}
+}
+
+const removeSanctuary = async () => {
+  if(!confirm("Remove from Sanctuary?")) return;
+  homeCity.value = '';
+  emailActive.value = false;
+  localStorage.setItem('homeCity', '');
+  localStorage.setItem('emailActive', 'false');
+
+  try {
+    await axios.put(`http://localhost:5160/api/auth/update-subscription`, {
+        username: username.value, isSubscribed: false, city: ""
+    });
+  } catch {}
 }
 
 const toggleFav = async () => {
@@ -147,15 +202,8 @@ const toggleFav = async () => {
   } catch {}
 }
 
-const setAsHome = async () => {
-  if (!weather.value) return;
-  if(confirm(`Make ${weather.value.city} your Sanctuary (Home City)?`)) {
-    toggleEmailSub(weather.value.city, true);
-  }
-}
-
 const removeDirectly = async (city: string) => {
-  if(confirm(`Remove ${city} from favorites?`)) {
+  if(confirm(`Remove ${city}?`)) {
     await axios.delete(`http://localhost:5160/api/Favorites/${username.value}/${city}`);
     favorites.value = favorites.value.filter(c => c !== city);
   }
@@ -176,7 +224,7 @@ onMounted(() => loadFavorites())
     <nav class="navbar">
       <div class="logo" @click="goHome">Atmosphere<span class="dot">.</span></div>
       
-      <div v-if="viewState === 'CITY'" class="nav-search-container">
+      <div v-if="viewState === 'CITY'" class="nav-central-search fade-in">
         <input 
           v-model="cityInput" 
           @input="onSearchInput"
@@ -185,7 +233,7 @@ onMounted(() => loadFavorites())
         />
         <ul v-if="showSuggestions && searchResults.length > 0" class="nav-suggestions">
            <li v-for="res in searchResults" :key="res.name" @click="fetchWeather(res.name)">
-             {{ res.name }} <span class="sub">{{ res.country }}</span>
+             {{ res.name }} <span class="sub-nav">{{ res.country }}</span>
            </li>
         </ul>
       </div>
@@ -206,10 +254,8 @@ onMounted(() => loadFavorites())
     <main class="main-body">
 
       <div v-if="viewState === 'HOME'" class="home-view fade-in">
-        
         <div class="hero">
           <h1>Explore the air around you.</h1>
-          
           <div class="cloud-search">
             <input 
               v-model="cityInput" 
@@ -218,7 +264,6 @@ onMounted(() => loadFavorites())
               placeholder="Search city (e.g. Paris)..." 
             />
             <button class="arrow-btn" @click="fetchWeather(cityInput)">→</button>
-            
             <ul v-if="showSuggestions && searchResults.length > 0" class="suggestions-list">
               <li v-for="res in searchResults" :key="res.name" @click="fetchWeather(res.name)">
                 {{ res.name }} <span class="sub">{{ res.country }}</span>
@@ -228,105 +273,124 @@ onMounted(() => loadFavorites())
         </div>
 
         <div v-if="homeCity" class="section-block">
-          <p class="section-label">MY SANCTUARY</p>
+          <div class="section-header">
+            <p class="section-label">MY SANCTUARY</p>
+            <button class="text-btn" @click="removeSanctuary">Remove</button>
+          </div>
           <div class="home-card">
             <div class="info" @click="fetchWeather(homeCity)">
               <h3>{{ homeCity }}</h3>
-              <p class="sub-text">You are receiving daily briefings for this city.</p>
+              <p class="sub-text">Primary Location</p>
             </div>
             <div class="controls">
-              <label class="switch">
-                <input type="checkbox" checked @change="(e) => toggleEmailSub(homeCity, (e.target as HTMLInputElement).checked)">
-                <span class="slider round"></span>
-              </label>
+              <button 
+                class="email-toggle-btn" 
+                :class="{ active: emailActive }"
+                @click="toggleEmailSub"
+                :title="emailActive ? 'Emails are ON' : 'Emails are OFF'"
+              >
+                <svg v-if="emailActive" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                <span>{{ emailActive ? 'ON' : 'OFF' }}</span>
+              </button>
             </div>
           </div>
         </div>
         
         <div class="section-block">
           <p class="section-label">COLLECTION</p>
-          
           <div v-if="otherFavorites.length > 0" class="fav-grid">
             <div v-for="fav in otherFavorites" :key="fav" class="fav-card">
               <div class="card-content" @click="fetchWeather(fav)">
                 <h3>{{ fav }}</h3>
-                <span class="view-link">View Report</span>
+                <span class="view-link">View</span>
               </div>
-              <button class="remove-btn" @click.stop="removeDirectly(fav)" title="Remove">✕</button>
+              <button class="remove-btn" @click.stop="removeDirectly(fav)">✕</button>
             </div>
           </div>
-          
           <div v-else-if="!homeCity" class="empty-state">
             <p>Your collection is empty.</p>
           </div>
         </div>
-
       </div>
 
       <div v-if="viewState === 'CITY'" class="city-view fade-in">
-        
         <div v-if="loading" class="loader"><div class="spinner"></div></div>
 
         <div v-else-if="weather" class="floating-card">
           <div class="detail-grid">
             
             <section class="left-panel" :class="weatherClass">
-              <div class="weather-header">
-                <div class="title-group">
-                  <h1 class="city-name">{{ weather.city }}</h1>
-                  <p class="country-name">{{ weather.country }}</p>
+              <div class="weather-main-content">
+                <div class="weather-header">
+                  <div class="title-group">
+                    <h1 class="city-name">{{ weather.city }}</h1>
+                    <p class="country-name">{{ weather.country }}</p>
+                  </div>
+                  <div class="actions">
+                    <button @click="toggleFav" class="icon-btn" :class="{ loved: isFav() }">
+                      {{ isFav() ? '♥' : '♡' }}
+                    </button>
+                    <button @click="setAsHome" class="home-pill" :class="{active: isHome}" :disabled="isHome">
+                      {{ isHome ? 'Home' : 'Set Home' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="temp-block">
+                  <span class="val">{{ Math.round(weather.currentTemp) }}</span>
+                  <span class="unit">°</span>
                 </div>
                 
-                <div class="actions">
-                  <button @click="toggleFav" class="icon-btn" :class="{ loved: isFav() }" title="Save to Collection">
-                    {{ isFav() ? '♥' : '♡' }}
-                  </button>
+                <div class="condition-row">
+                  <span class="condition">{{ weather.currentCondition }}</span>
+                  <span class="high-low">H: {{ Math.round(weather.maxTemp) }}° L: {{ Math.round(weather.minTemp) }}°</span>
+                </div>
+
+                <div class="metrics-grid">
+                  <div class="m-item"><label>HUMIDITY</label><span>{{ weather.humidity }}%</span></div>
+                  <div class="m-item"><label>WIND</label><span>{{ Math.round(weather.windSpeed) }} km/h</span></div>
+                  <div class="m-item"><label>AQI</label><span>{{ weather.aqi }}</span></div>
                   
-                  <button 
-                    @click="setAsHome" 
-                    class="home-pill" 
-                    :class="{active: isHome}"
-                    :disabled="isHome"
-                    :title="isHome ? 'This is your Home City' : 'Set as Home City'"
-                  >
-                    {{ isHome ? 'Home' : 'Set Home' }}
-                  </button>
+                  <div class="m-item"><label>UV INDEX</label><span>{{ weather.uvIndex }}</span></div>
+                  <div class="m-item"><label>VISIBILITY</label><span>{{ weather.visibility }} km</span></div>
+                  <div class="m-item">
+                    <label>DAYLIGHT</label>
+                    <span class="small-val">{{ weather.dayLength }}</span>
+                  </div>
                 </div>
               </div>
 
-              <div class="temp-block">
-                <span class="val">{{ Math.round(weather.currentTemp) }}</span>
-                <span class="unit">°</span>
-              </div>
-              <div class="condition">{{ weather.currentCondition }}</div>
-
-              <div class="metrics">
-                <div class="m-item"><label>HUMIDITY</label><span>{{ weather.humidity }}%</span></div>
-                <div class="m-item"><label>WIND</label><span>{{ Math.round(weather.windSpeed) }} km/h</span></div>
-                <div class="m-item"><label>AQI</label><span>{{ weather.aqi }}</span></div>
+              <div class="day-cycle" v-if="weather.dayParts && weather.dayParts.length >= 3">
+                <div class="cycle-item">
+                  <span class="c-label">Morning</span>
+                  <span class="c-val">{{ Math.round(weather.dayParts[0].temp) }}°</span>
+                </div>
+                <div class="cycle-divider"></div>
+                <div class="cycle-item">
+                  <span class="c-label">Afternoon</span>
+                  <span class="c-val">{{ Math.round(weather.dayParts[1].temp) }}°</span>
+                </div>
+                <div class="cycle-divider"></div>
+                <div class="cycle-item">
+                  <span class="c-label">Evening</span>
+                  <span class="c-val">{{ Math.round(weather.dayParts[2].temp) }}°</span>
+                </div>
               </div>
             </section>
 
             <section class="right-panel">
               <div class="panel-inner">
                 <div class="brief-header">DAILY BRIEFING</div>
-                
-                <div v-if="aiLoading" class="skeleton">
-                  <div class="line l1"></div><div class="line l2"></div><div class="line l3"></div>
-                </div>
-                
+                <div v-if="aiLoading" class="skeleton"><div class="line"></div><div class="line"></div></div>
                 <div v-else>
                   <p class="ai-summary">"{{ aiData?.summary }}"</p>
-                  
                   <div class="advisories">
                     <div class="advice-block">
-                      <span class="cat-label">OUTFIT</span>
-                      <p class="adv-text">{{ aiData?.outfit }}</p>
+                      <span class="cat-label">OUTFIT</span><p class="adv-text">{{ aiData?.outfit }}</p>
                     </div>
-
                     <div class="advice-block">
-                      <span class="cat-label">ADVISORY</span>
-                      <p class="adv-text">{{ aiData?.safety }}</p>
+                      <span class="cat-label">ADVISORY</span><p class="adv-text">{{ aiData?.safety }}</p>
                     </div>
                   </div>
                 </div>
@@ -341,8 +405,8 @@ onMounted(() => loadFavorites())
 </template>
 
 <style scoped>
-/* RESET & FONTS */
-.luxury-app { min-height: 100vh; display: flex; flex-direction: column; background: linear-gradient(180deg, #fdfbf7 0%, #ffffff 100%); color: #1a1a1a; font-family: 'Lato', sans-serif; overflow-x: hidden; }
+/* GLOBAL */
+.luxury-app { min-height: 100vh; display: flex; flex-direction: column; background: #faf9f6; color: #1a1a1a; font-family: 'Lato', sans-serif; overflow-x: hidden; }
 h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 
 /* NAVBAR */
@@ -350,16 +414,17 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 .logo { font-size: 1.5rem; font-weight: 700; cursor: pointer; letter-spacing: -0.5px; }
 .logo .dot { color: #d4a373; }
 
-/* NAV SEARCH (Centered) */
-.nav-search-container { position: absolute; left: 50%; transform: translateX(-50%); width: 400px; }
-.nav-search-container input { width: 100%; padding: 10px 20px; border: 1px solid #eee; border-radius: 20px; outline: none; background: #f9f9f9; font-family: 'Lato'; transition: all 0.2s; }
-.nav-search-container input:focus { background: white; border-color: #ccc; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-.nav-suggestions { position: absolute; top: 110%; width: 100%; background: white; list-style: none; padding: 0; box-shadow: 0 10px 20px rgba(0,0,0,0.08); border-radius: 8px; overflow: hidden; z-index: 60; }
-.nav-suggestions li { padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; }
-.nav-suggestions li:hover { background: #f9f9f9; }
+/* NAV CENTRAL SEARCH */
+.nav-central-search { position: absolute; left: 50%; transform: translateX(-50%); width: 450px; background: white; border-radius: 40px; padding: 8px 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.02); }
+.nav-central-search input { width: 100%; border: none; outline: none; font-size: 1rem; font-family: 'Lato'; color: #333; }
+.nav-suggestions { position: absolute; top: 120%; left: 0; width: 100%; background: white; list-style: none; padding: 10px 0; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border-radius: 15px; overflow: hidden; z-index: 60; }
+.nav-suggestions li { padding: 10px 20px; cursor: pointer; border-bottom: 1px solid #f9f9f9; }
+.nav-suggestions li:hover { background: #f5f5f5; }
+.sub-nav { color: #999; font-size: 0.8rem; margin-left: 5px; }
 
+/* Profile */
 .initial { width: 40px; height: 40px; background: #1a1a1a; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'Playfair Display'; cursor: pointer; }
-.dropdown { position: absolute; right: 0; top: 60px; background: white; border: 1px solid #eee; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 200px; padding: 20px; z-index: 100; border-radius: 12px; }
+.dropdown { position: absolute; right: 0; top: 60px; background: white; border: 1px solid #eee; box-shadow: 0 10px 30px rgba(0,0,0,0.08); width: 220px; padding: 20px; z-index: 100; border-radius: 12px; }
 .u-name { font-weight: bold; display: block; }
 .u-email { font-size: 0.8rem; color: #888; display: block; margin-bottom: 10px; }
 .divider { height: 1px; background: #eee; margin-bottom: 10px; }
@@ -368,20 +433,13 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 
 /* HOME VIEW */
 .home-view { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 60px 20px; max-width: 900px; margin: 0 auto; width: 100%; }
-.hero h1 { font-size: 3.8rem; color: #1a1a1a; margin-bottom: 50px; text-align: center; font-weight: 500; letter-spacing: -1px; }
+.hero h1 { font-size: 4rem; color: #1a1a1a; margin-bottom: 50px; text-align: center; font-weight: 500; letter-spacing: -1px; }
 
-/* CLOUD SEARCH (Home) */
-.cloud-search { 
-  position: relative; width: 100%; max-width: 650px; margin-bottom: 80px; 
-  background: white; border-radius: 50px; 
-  box-shadow: 0 20px 50px rgba(0,0,0,0.06); 
-  display: flex; align-items: center; padding: 10px 10px 10px 30px;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
+/* CLOUD SEARCH */
+.cloud-search { position: relative; width: 100%; max-width: 600px; margin-bottom: 80px; background: white; border-radius: 50px; box-shadow: 0 20px 50px rgba(0,0,0,0.06); display: flex; align-items: center; padding: 12px 12px 12px 30px; transition: transform 0.3s ease; }
 .cloud-search:focus-within { transform: translateY(-2px); box-shadow: 0 25px 60px rgba(0,0,0,0.08); }
 .cloud-search input { flex: 1; border: none; font-size: 1.2rem; outline: none; font-family: 'Lato'; background: transparent; color: #333; }
-.arrow-btn { background: #1a1a1a; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
-.arrow-btn:hover { background: #333; }
+.arrow-btn { background: #1a1a1a; color: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .suggestions-list { position: absolute; top: 110%; left: 20px; right: 20px; background: white; list-style: none; padding: 10px 0; margin-top: 5px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border-radius: 20px; z-index: 50; text-align: left; }
 .suggestions-list li { padding: 15px 25px; cursor: pointer; transition: background 0.1s; }
 .suggestions-list li:hover { background: #f7f7f7; }
@@ -389,95 +447,77 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 
 /* SECTIONS */
 .section-block { width: 100%; margin-bottom: 60px; }
-.section-label { font-size: 0.75rem; letter-spacing: 2px; color: #aaa; margin-bottom: 25px; font-weight: 700; text-transform: uppercase; }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+.section-label { font-size: 0.75rem; letter-spacing: 2px; color: #aaa; margin: 0; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+.text-btn { background: none; border: none; color: #999; font-size: 0.75rem; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: color 0.2s; }
+.text-btn:hover { color: #d32f2f; }
 
-/* Home Card */
 .home-card { background: #fffcf5; border: 1px solid #eaddcf; padding: 30px 40px; border-radius: 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; }
 .home-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.03); }
 .home-card h3 { margin: 0; font-size: 2rem; color: #1a1a1a; }
 .sub-text { color: #888; font-size: 0.9rem; margin-top: 5px; }
 
-/* Fav Grid */
-.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
-.fav-card { background: white; border: 1px solid #f0f0f0; padding: 25px; border-radius: 16px; position: relative; cursor: pointer; transition: all 0.3s; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 5px 15px rgba(0,0,0,0.02); }
-.fav-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.05); border-color: #1a1a1a; }
-.card-content h3 { margin: 0 0 5px 0; font-size: 1.4rem; font-family: 'Playfair Display'; }
-.view-link { font-size: 0.75rem; color: #bbb; text-transform: uppercase; letter-spacing: 1px; }
-.remove-btn { background: none; border: none; color: #eee; font-size: 1.2rem; cursor: pointer; padding: 8px; transition: color 0.2s; border-radius: 50%; }
-.remove-btn:hover { color: #ef4444; background: #fff5f5; }
+.email-toggle-btn { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 30px; border: 1px solid #e5e5e5; background: white; color: #aaa; cursor: pointer; font-size: 0.75rem; font-weight: 700; transition: all 0.2s ease; }
+.email-toggle-btn:hover { border-color: #d4a373; color: #d4a373; }
+.email-toggle-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+/* Collection Grid */
+.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 25px; margin-top: 25px; }
+.fav-card { background: #ffffff; border: 1px solid #f0f0f0; padding: 30px; border-radius: 24px; position: relative; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+.fav-card:hover { transform: translateY(-5px); box-shadow: 0 15px 40px rgba(0,0,0,0.08); border-color: #e5e5e5; }
+.card-content h3 { margin: 0 0 8px 0; font-size: 1.8rem; font-family: 'Playfair Display', serif; color: #1a1a1a; }
+.view-link { font-size: 0.75rem; color: #d4a373; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; display: inline-block; }
+.remove-btn { background: #f9f9f9; border: none; color: #ccc; font-size: 1rem; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.remove-btn:hover { color: #e11d48; background: #ffe4e6; }
 
 /* CITY VIEW */
-.city-view { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; background: #f8f9fa; }
+.city-view { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
 .floating-card { width: 100%; max-width: 1100px; background: white; border-radius: 50px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,0.08); min-height: 650px; display: flex; }
 .detail-grid { display: grid; grid-template-columns: 1.3fr 1fr; width: 100%; }
 
-.left-panel { padding: 60px; display: flex; flex-direction: column; justify-content: center; color: #1a1a1a; transition: background 0.5s; position: relative; }
+.left-panel { padding: 60px; display: flex; flex-direction: column; justify-content: space-between; color: #1a1a1a; transition: background 0.5s; position: relative; }
+.weather-main-content { width: 100%; }
 
-/* Header Layout: Name wraps, Actions stay put */
-.weather-header { 
-  display: flex; 
-  justify-content: space-between; 
-  align-items: flex-start; /* Important: Align to top */
-  margin-bottom: 40px; 
-  gap: 20px; 
-}
-.title-group { 
-  flex: 1; 
-  min-width: 0; /* Allows text wrap */
-  padding-right: 10px; /* Space between name and buttons */
-}
-.city-name { 
-  font-size: 3.5rem; 
-  margin: 0; 
-  line-height: 1.1; 
-  word-wrap: break-word; /* Handle long names like Thiruvananthapuram */
-}
+.weather-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; gap: 20px; }
+.title-group { flex: 1; min-width: 0; padding-right: 10px; }
+.city-name { font-size: 3.5rem; margin: 0; line-height: 1.1; word-wrap: break-word; }
 .country-name { font-size: 1.2rem; color: inherit; opacity: 0.8; margin-top: 5px; font-family: 'Playfair Display'; font-style: italic; }
 
-.actions { 
-  display: flex; 
-  align-items: center; 
-  gap: 15px; 
-  flex-shrink: 0; /* Prevents button squish */
-}
-
-/* Icon Button (Heart) */
-.icon-btn { 
-  font-size: 1.5rem; background: none; border: none; cursor: pointer; 
-  opacity: 0.4; transition: all 0.2s; 
-}
-.icon-btn:hover { opacity: 0.8; transform: scale(1.1); }
+.actions { display: flex; align-items: center; gap: 15px; flex-shrink: 0; }
+.icon-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; background: none; border: 1px solid transparent; border-radius: 50%; cursor: pointer; opacity: 0.3; transition: all 0.3s; }
+.icon-btn:hover { opacity: 1; background: #fff0f5; color: #e11d48; }
 .icon-btn.loved { opacity: 1; color: #e11d48; }
 
-/* Set Home Pill (Redesigned) */
-.home-pill { 
-  padding: 8px 16px; 
-  border: 1px solid #e5e5e5; 
-  border-radius: 20px; 
-  background: white; 
-  font-size: 0.75rem; 
-  font-weight: 700; 
-  text-transform: uppercase; 
-  cursor: pointer; 
-  transition: all 0.2s; 
-  white-space: nowrap;
-}
-.home-pill:hover { border-color: #1a1a1a; }
-.home-pill.active { 
-  background: #f0fdf4; 
-  color: #15803d; 
-  border-color: #bbf7d0; 
-  cursor: default; 
-}
+.home-pill { height: 32px; padding: 0 18px; border: 1px solid #e5e5e5; border-radius: 100px; background: white; font-size: 0.7rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #999; cursor: pointer; transition: all 0.3s ease; white-space: nowrap; }
+.home-pill:hover { border-color: #333; color: #333; }
+.home-pill.active { background: #f6fff8; border-color: #bbf7d0; color: #15803d; cursor: default; }
 
-.temp-block { font-size: 8rem; line-height: 1; margin: 20px 0; }
+.temp-block { font-size: 8rem; line-height: 1; margin: 10px 0; }
 .unit { font-size: 3rem; vertical-align: top; }
-.condition { font-size: 1.8rem; opacity: 0.7; margin-bottom: 60px; font-family: 'Playfair Display'; font-style: italic; }
 
-.metrics { display: flex; gap: 50px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 40px; }
+.condition-row { display: flex; align-items: baseline; gap: 20px; margin-bottom: 40px; }
+.condition { font-size: 1.8rem; opacity: 0.7; font-family: 'Playfair Display'; font-style: italic; }
+.high-low { font-size: 1rem; color: #1a1a1a; opacity: 0.5; font-weight: 700; letter-spacing: 0.5px; }
+
+/* 🟢 UPDATED: 2x3 Grid for Metrics */
+.metrics-grid { 
+  display: grid; 
+  grid-template-columns: repeat(3, 1fr); 
+  gap: 30px; 
+  border-top: 1px solid rgba(0,0,0,0.1); 
+  padding-top: 30px; 
+  margin-bottom: 30px; 
+}
 .m-item { display: flex; flex-direction: column; }
 .m-item label { font-size: 0.7rem; letter-spacing: 1px; opacity: 0.6; margin-bottom: 5px; font-weight: 700; }
 .m-item span { font-weight: bold; font-size: 1.1rem; }
+.small-val { font-size: 0.95rem !important; opacity: 0.9; }
+
+.day-cycle { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(0,0,0,0.05); padding-top: 25px; margin-top: auto; }
+.cycle-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
+.cycle-divider { width: 1px; height: 30px; background: rgba(0,0,0,0.05); }
+.c-label { font-size: 0.7rem; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; font-weight: 700; }
+.c-val { font-size: 1.2rem; font-weight: bold; color: #1a1a1a; }
 
 .right-panel { background: #ffffff; padding: 60px; display: flex; flex-direction: column; justify-content: center; }
 .panel-inner { max-width: 450px; margin: 0 auto; }
@@ -488,21 +528,12 @@ h1, h2, h3, .city-name, .temp-block { font-family: 'Playfair Display', serif; }
 .cat-label { font-size: 0.7rem; letter-spacing: 1.5px; color: #aaa; text-transform: uppercase; font-weight: 700; }
 .adv-text { font-size: 1rem; color: #1a1a1a; font-weight: 500; line-height: 1.5; margin: 0; font-family: 'Lato', sans-serif; }
 
-/* TOGGLE SWITCH */
-.switch { position: relative; display: inline-block; width: 50px; height: 28px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
-.slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-input:checked + .slider { background-color: #10b981; }
-input:checked + .slider:before { transform: translateX(22px); }
-
 /* Backgrounds */
 .bg-default { background: #fdfdfd; }
 .bg-sunny { background: linear-gradient(135deg, #fffbf0 0%, #fff5e0 100%); }
 .bg-cloudy { background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); }
 .bg-rainy { background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%); }
 .bg-misty { background: linear-gradient(135deg, #f5f5f4 0%, #d6d3d1 100%); }
-.bg-stormy { background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%); }
 
 .fade-in { animation: fadeIn 0.6s ease-out; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -510,6 +541,4 @@ input:checked + .slider:before { transform: translateX(22px); }
 .spinner { width: 40px; height: 40px; border: 2px solid #eee; border-top-color: #1a1a1a; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .skeleton .line { height: 12px; background: #e0e0e0; margin-bottom: 15px; animation: pulse 1.5s infinite; }
-.skeleton .l2 { width: 80%; } .skeleton .l3 { width: 60%; }
-@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
 </style>

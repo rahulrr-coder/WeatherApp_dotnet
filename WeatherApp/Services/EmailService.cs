@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Mail;
-using System.Text.Json; // Added for parsing
+using System.Text.Json;
 using WeatherApp.Models;
 
 namespace WeatherApp.Services;
@@ -40,7 +40,7 @@ public class EmailService : IEmailService
 
         var mailMessage = new MailMessage
         {
-            From = new MailAddress(fromEmail, "Atmosphere Daily"), // Added Display Name
+            From = new MailAddress(fromEmail, "Atmosphere Daily"),
             Subject = subject,
             Body = body,
             IsBodyHtml = true,
@@ -62,14 +62,24 @@ public class EmailService : IEmailService
     {
         var subject = $"The Atmosphere in {weather.City} ☁️";
         
-        // 1. Parse the AI JSON (Summary, Outfit, Safety)
-        string summary = "Enjoy your day.";
+        // 1. Robust AI JSON Parsing
+        string summary = "Enjoy the atmosphere.";
         string outfit = "Dress comfortably.";
         string safety = "No specific hazards.";
 
         try 
         {
+            // Clean markdown if present
             var cleanJson = aiAdvice.Replace("```json", "").Replace("```", "").Trim();
+            
+            // Extract JSON object if wrapped in text
+            int start = cleanJson.IndexOf('{');
+            int end = cleanJson.LastIndexOf('}');
+            if (start >= 0 && end > start)
+            {
+                cleanJson = cleanJson.Substring(start, end - start + 1);
+            }
+
             using var doc = JsonDocument.Parse(cleanJson);
             var root = doc.RootElement;
             
@@ -79,7 +89,7 @@ public class EmailService : IEmailService
         }
         catch 
         {
-            // Fallback: Use the raw text if parsing fails
+            // Fallback: Use raw text if parsing fails entirely
             summary = aiAdvice; 
         }
 
@@ -89,75 +99,88 @@ public class EmailService : IEmailService
         <html>
         <head>
             <style>
-                body {{ margin: 0; padding: 0; font-family: 'Georgia', serif; background-color: #f4f4f4; }}
-                .container {{ max-width: 600px; margin: 40px auto; background-color: #fdfbf7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }}
-                .header {{ background-color: #1a1a1a; color: white; padding: 40px 30px; text-align: center; }}
-                .logo {{ font-size: 24px; font-weight: bold; letter-spacing: -1px; margin-bottom: 10px; display: block; }}
-                .city-title {{ font-size: 36px; margin: 0; font-weight: normal; }}
-                .content {{ padding: 40px 30px; color: #333; }}
-                .temp-hero {{ font-size: 64px; font-weight: bold; text-align: center; margin: 20px 0; color: #1a1a1a; }}
-                .temp-sub {{ font-size: 18px; text-align: center; color: #666; font-style: italic; margin-bottom: 40px; display: block; }}
-                
-                .grid {{ display: flex; border-top: 1px solid #eee; border-bottom: 1px solid #eee; padding: 20px 0; margin-bottom: 40px; }}
-                .grid-item {{ flex: 1; text-align: center; border-right: 1px solid #eee; }}
-                .grid-item:last-child {{ border-right: none; }}
-                .label {{ font-family: 'Helvetica', sans-serif; font-size: 10px; letter-spacing: 1px; color: #999; text-transform: uppercase; display: block; margin-bottom: 5px; }}
-                .value {{ font-family: 'Helvetica', sans-serif; font-size: 16px; font-weight: bold; color: #333; }}
-
-                .section-title {{ font-family: 'Helvetica', sans-serif; font-size: 12px; letter-spacing: 2px; color: #d4a373; text-transform: uppercase; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #d4a373; display: inline-block; padding-bottom: 5px; }}
-                .advice-box {{ margin-bottom: 30px; }}
-                .advice-text {{ font-size: 16px; line-height: 1.6; color: #444; margin: 0 0 10px 0; }}
-                
-                .footer {{ background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #aaa; font-family: 'Helvetica', sans-serif; }}
+                /* Client-specific resets */
+                body, table, td, a {{ -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }}
+                table, td {{ mso-table-lspace: 0pt; mso-table-rspace: 0pt; }}
+                img {{ -ms-interpolation-mode: bicubic; }}
+                body {{ height: 100% !important; margin: 0 !important; padding: 0 !important; width: 100% !important; font-family: 'Georgia', serif; background-color: #f4f4f4; }}
             </style>
         </head>
-        <body>
-            <div class='container'>
-                <div class='header'>
-                    <span class='logo'>Atmosphere.</span>
-                    <h1 class='city-title'>{weather.City}</h1>
-                </div>
-                
-                <div class='content'>
-                    <div class='temp-hero'>{weather.CurrentTemp:F0}°</div>
-                    <span class='temp-sub'>{weather.CurrentCondition}</span>
+        <body style='margin: 0; padding: 0; background-color: #f4f4f4;'>
+            
+            <table border='0' cellpadding='0' cellspacing='0' width='100%'>
+                <tr>
+                    <td align='center' style='padding: 40px 10px;'>
+                        <table border='0' cellpadding='0' cellspacing='0' width='600' style='background-color: #fdfbf7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05);'>
+                            
+                            <tr>
+                                <td align='center' style='background-color: #1a1a1a; padding: 40px; color: #ffffff;'>
+                                    <span style='font-size: 24px; font-weight: bold; letter-spacing: -1px; display: block; margin-bottom: 10px;'>Atmosphere.</span>
+                                    <h1 style='margin: 0; font-size: 36px; font-weight: normal;'>{weather.City}</h1>
+                                </td>
+                            </tr>
 
-                    <div class='grid'>
-                        <div class='grid-item'>
-                            <span class='label'>Humidity</span>
-                            <span class='value'>{weather.Humidity}%</span>
-                        </div>
-                        <div class='grid-item'>
-                            <span class='label'>Wind</span>
-                            <span class='value'>{weather.WindSpeed} km/h</span>
-                        </div>
-                        <div class='grid-item'>
-                            <span class='label'>AQI</span>
-                            <span class='value'>{weather.AQI}</span>
-                        </div>
-                    </div>
+                            <tr>
+                                <td align='center' style='padding: 40px 20px 20px 20px;'>
+                                    <span style='font-size: 64px; font-weight: bold; color: #1a1a1a; display: block;'>{weather.CurrentTemp:F0}°</span>
+                                    <span style='font-size: 18px; color: #666; font-style: italic; display: block; margin-top: 5px;'>{weather.CurrentCondition}</span>
+                                </td>
+                            </tr>
 
-                    <div class='advice-box'>
-                        <div class='section-title'>Daily Briefing</div>
-                        <p class='advice-text' style='font-size: 18px; font-style: italic;'>""{summary}""</p>
-                    </div>
+                            <tr>
+                                <td style='padding: 0 40px 40px 40px;'>
+                                    <table border='0' cellpadding='0' cellspacing='0' width='100%' style='border-top: 1px solid #eee; border-bottom: 1px solid #eee;'>
+                                        <tr>
+                                            <td align='center' style='padding: 20px 0; width: 33%; border-right: 1px solid #eee;'>
+                                                <span style='font-family: sans-serif; font-size: 10px; color: #999; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 5px;'>HUMIDITY</span>
+                                                <span style='font-family: sans-serif; font-size: 16px; font-weight: bold; color: #333;'>{weather.Humidity}%</span>
+                                            </td>
+                                            <td align='center' style='padding: 20px 0; width: 33%; border-right: 1px solid #eee;'>
+                                                <span style='font-family: sans-serif; font-size: 10px; color: #999; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 5px;'>WIND</span>
+                                                <span style='font-family: sans-serif; font-size: 16px; font-weight: bold; color: #333;'>{weather.WindSpeed:F1} km/h</span>
+                                            </td>
+                                            <td align='center' style='padding: 20px 0; width: 33%;'>
+                                                <span style='font-family: sans-serif; font-size: 10px; color: #999; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 5px;'>AQI</span>
+                                                <span style='font-family: sans-serif; font-size: 16px; font-weight: bold; color: #333;'>{weather.AQI}</span>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
 
-                    <div class='advice-box'>
-                        <div class='section-title'>Outfit</div>
-                        <p class='advice-text'>{outfit}</p>
-                    </div>
+                            <tr>
+                                <td style='padding: 0 40px 40px 40px;'>
+                                    
+                                    <div style='margin-bottom: 30px;'>
+                                        <p style='font-family: sans-serif; font-size: 12px; letter-spacing: 2px; color: #d4a373; text-transform: uppercase; font-weight: bold; margin: 0 0 15px 0; border-bottom: 2px solid #d4a373; display: inline-block; padding-bottom: 5px;'>DAILY BRIEFING</p>
+                                        <p style='font-size: 18px; line-height: 1.6; color: #444; margin: 0; font-style: italic;'>""{summary}""</p>
+                                    </div>
 
-                    <div class='advice-box'>
-                        <div class='section-title'>Advisory</div>
-                        <p class='advice-text'>{safety}</p>
-                    </div>
-                </div>
+                                    <div style='margin-bottom: 30px;'>
+                                        <p style='font-family: sans-serif; font-size: 12px; letter-spacing: 2px; color: #d4a373; text-transform: uppercase; font-weight: bold; margin: 0 0 15px 0; border-bottom: 2px solid #d4a373; display: inline-block; padding-bottom: 5px;'>OUTFIT</p>
+                                        <p style='font-size: 16px; line-height: 1.6; color: #444; margin: 0;'>{outfit}</p>
+                                    </div>
 
-                <div class='footer'>
-                    Have a wonderful day.<br>
-                    <a href='http://localhost:5173' style='color: #d4a373; text-decoration: none;'>View Dashboard</a>
-                </div>
-            </div>
+                                    <div>
+                                        <p style='font-family: sans-serif; font-size: 12px; letter-spacing: 2px; color: #d4a373; text-transform: uppercase; font-weight: bold; margin: 0 0 15px 0; border-bottom: 2px solid #d4a373; display: inline-block; padding-bottom: 5px;'>ADVISORY</p>
+                                        <p style='font-size: 16px; line-height: 1.6; color: #444; margin: 0;'>{safety}</p>
+                                    </div>
+
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td align='center' style='background-color: #f9f9f9; padding: 30px; font-family: sans-serif; font-size: 12px; color: #aaa;'>
+                                    <p style='margin: 0 0 10px 0;'>Have a wonderful day.</p>
+                                    <a href='http://localhost:5173' style='color: #d4a373; text-decoration: none;'>View Dashboard</a>
+                                </td>
+                            </tr>
+
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
         </body>
         </html>";
 
